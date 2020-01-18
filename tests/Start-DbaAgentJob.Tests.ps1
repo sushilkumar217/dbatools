@@ -27,4 +27,5 @@ Describe "$CommandName Integration Tests" -Tag "IntegrationTests" {
     It "returns on multiple server inputs" {
         $results = Get-DbaAgentJob -SqlInstance $script:instance2,$script:instance3 -Job 'DatabaseBackup - SYSTEM_DATABASES - FULL' | Start-DbaAgentJob
         ($results.SqlInstance).Count | Should -Be 2
-   }
+    }
+}
