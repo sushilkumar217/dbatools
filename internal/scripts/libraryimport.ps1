@@ -54,7 +54,8 @@ $scriptBlock = {
             'Microsoft.SqlServer.Types',
             'Microsoft.SqlServer.Management.RegisteredServers',
             'Microsoft.SqlTools.Hosting',
-            'Microsoft.SqlTools.ManagedBatchParser'
+            'Microsoft.SqlTools.ManagedBatchParser',
+            'Microsoft.SqlServer.Assessment'
         )
     } else {
         $names = @(
@@ -80,7 +81,8 @@ $scriptBlock = {
             'Microsoft.SqlServer.Dmf',
             'Microsoft.SqlServer.Dmf.Common',
             'Microsoft.SqlServer.Types',
-            'Microsoft.SqlServer.XEvent.Linq'
+            'Microsoft.SqlServer.XEvent.Linq',
+            'Microsoft.SqlServer.Assessment'
         )
     }
     #endregion Names
