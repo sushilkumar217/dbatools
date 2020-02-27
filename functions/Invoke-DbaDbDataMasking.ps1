@@ -318,83 +318,89 @@ function Invoke-DbaDbDataMasking {
                     [array]$uniqueIndexes = $db.Tables[$($tableobject.Name)].Indexes | Where-Object IsUnique -eq $true
 
                     # Check if the table contains unique indexes
-                    if ($tableobject.HasUniqueIndex -and $uniqueIndexes.Count -ge 1) {
+                    if ($tableobject.HasUniqueIndex) {
 
-                        # Loop through the rows and generate a unique value for each row
-                        Write-Message -Level Verbose -Message "Generating unique values for $($tableobject.Name)"
+                        if ($uniqueIndexes.Count -ge 1) {
 
-                        for ($i = 0; $i -lt $data.Count; $i++) {
+                            # Loop through the rows and generate a unique value for each row
+                            Write-Message -Level Verbose -Message "Generating unique values for $($tableobject.Name)"
 
-                            $rowValue = New-Object PSCustomObject
+                            for ($i = 0; $i -lt $data.Count; $i++) {
 
-                            # Loop through each of the unique indexes
-                            foreach ($index in $uniqueIndexes) {
+                                $rowValue = New-Object PSCustomObject
 
-                                # Loop through the index columns
-                                foreach ($indexColumn in $index.IndexedColumns) {
+                                # Loop through each of the unique indexes
+                                foreach ($index in $uniqueIndexes) {
 
-                                    if (-not $dbTable.Columns[$indexColumn.Name].Identity) {
+                                    # Loop through the index columns
+                                    foreach ($indexColumn in $index.IndexedColumns) {
 
-                                        # Get the column mask info
-                                        $columnMaskInfo = $tableobject.Columns | Where-Object Name -eq $indexColumn.Name
+                                        if (-not $dbTable.Columns[$indexColumn.Name].Identity) {
 
-                                        if ($columnMaskInfo) {
-                                            # Generate a new value
-                                            try {
-                                                if (-not $columnobject.SubType -and $columnobject.ColumnType -in $supportedDataTypes) {
-                                                    $newValue = Get-DbaRandomizedValue -DataType $columnMaskInfo.SubType -Min $columnMaskInfo.MinValue -Max $columnMaskInfo.MaxValue -Locale $Locale
-                                                } else {
-                                                    $newValue = Get-DbaRandomizedValue -RandomizerType $columnMaskInfo.MaskingType -RandomizerSubtype $columnMaskInfo.SubType -Min $columnMaskInfo.MinValue -Max $columnMaskInfo.MaxValue -Locale $Locale
+                                            # Get the column mask info
+                                            $columnMaskInfo = $tableobject.Columns | Where-Object Name -eq $indexColumn.Name
+
+                                            if ($columnMaskInfo) {
+                                                # Generate a new value
+                                                try {
+                                                    if (-not $columnobject.SubType -and $columnobject.ColumnType -in $supportedDataTypes) {
+                                                        $newValue = Get-DbaRandomizedValue -DataType $columnMaskInfo.SubType -Min $columnMaskInfo.MinValue -Max $columnMaskInfo.MaxValue -Locale $Locale
+                                                    } else {
+                                                        $newValue = Get-DbaRandomizedValue -RandomizerType $columnMaskInfo.MaskingType -RandomizerSubtype $columnMaskInfo.SubType -Min $columnMaskInfo.MinValue -Max $columnMaskInfo.MaxValue -Locale $Locale
+                                                    }
+
+                                                } catch {
+                                                    Stop-Function -Message "Failure" -Target $columnMaskInfo -Continue -ErrorRecord $_
                                                 }
 
-                                            } catch {
-                                                Stop-Function -Message "Failure" -Target $columnMaskInfo -Continue -ErrorRecord $_
+                                                # Check if the value is already present as a property
+                                                if (($rowValue | Get-Member -MemberType NoteProperty).Name -notcontains $indexColumn.Name) {
+                                                    $rowValue | Add-Member -Name $indexColumn.Name -Type NoteProperty -Value $newValue
+                                                }
                                             }
 
-                                            # Check if the value is already present as a property
-                                            if (($rowValue | Get-Member -MemberType NoteProperty).Name -notcontains $indexColumn.Name) {
-                                                $rowValue | Add-Member -Name $indexColumn.Name -Type NoteProperty -Value $newValue
-                                            }
-                                        }
+                                            # To be sure the values are unique, loop as long as long as needed to generate a unique value
+                                            while (($uniqueValues | Select-Object -Property ($rowValue | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name)) -match $rowValue) {
 
-                                        # To be sure the values are unique, loop as long as long as needed to generate a unique value
-                                        while (($uniqueValues | Select-Object -Property ($rowValue | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name)) -match $rowValue) {
+                                                $rowValue = New-Object PSCustomObject
 
-                                            $rowValue = New-Object PSCustomObject
+                                                # Loop through the index columns
+                                                foreach ($indexColumn in $index.IndexedColumns) {
 
-                                            # Loop through the index columns
-                                            foreach ($indexColumn in $index.IndexedColumns) {
+                                                    # Get the column mask info
+                                                    $columnMaskInfo = $tableobject.Columns | Where-Object Name -eq $indexColumn.Name
 
-                                                # Get the column mask info
-                                                $columnMaskInfo = $tableobject.Columns | Where-Object Name -eq $indexColumn.Name
+                                                    if ($columnMaskInfo) {
+                                                        # Generate a new value
+                                                        try {
+                                                            if (-not $columnobject.SubType -and $columnobject.ColumnType -in $supportedDataTypes) {
+                                                                $newValue = Get-DbaRandomizedValue -DataType $columnMaskInfo.SubType -Min $columnMaskInfo.MinValue -Max $columnMaskInfo.MaxValue -Locale $Locale
+                                                            } else {
+                                                                $newValue = Get-DbaRandomizedValue -RandomizerType $columnMaskInfo.MaskingType -RandomizerSubtype $columnMaskInfo.SubType -Min $columnMaskInfo.MinValue -Max $columnMaskInfo.MaxValue -Locale $Locale
+                                                            }
 
-                                                if ($columnMaskInfo) {
-                                                    # Generate a new value
-                                                    try {
-                                                        if (-not $columnobject.SubType -and $columnobject.ColumnType -in $supportedDataTypes) {
-                                                            $newValue = Get-DbaRandomizedValue -DataType $columnMaskInfo.SubType -Min $columnMaskInfo.MinValue -Max $columnMaskInfo.MaxValue -Locale $Locale
-                                                        } else {
-                                                            $newValue = Get-DbaRandomizedValue -RandomizerType $columnMaskInfo.MaskingType -RandomizerSubtype $columnMaskInfo.SubType -Min $columnMaskInfo.MinValue -Max $columnMaskInfo.MaxValue -Locale $Locale
+                                                        } catch {
+                                                            Stop-Function -Message "Failure" -Target $columnMaskInfo -Continue -ErrorRecord $_
                                                         }
 
-                                                    } catch {
-                                                        Stop-Function -Message "Failure" -Target $columnMaskInfo -Continue -ErrorRecord $_
-                                                    }
-
-                                                    # Check if the value is already present as a property
-                                                    if (($rowValue | Get-Member -MemberType NoteProperty).Name -notcontains $indexColumn.Name) {
-                                                        $rowValue | Add-Member -Name $indexColumn.Name -Type NoteProperty -Value $newValue
+                                                        # Check if the value is already present as a property
+                                                        if (($rowValue | Get-Member -MemberType NoteProperty).Name -notcontains $indexColumn.Name) {
+                                                            $rowValue | Add-Member -Name $indexColumn.Name -Type NoteProperty -Value $newValue
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
-                                    # Add the row value to the array
-                                    $uniqueValues += $rowValue
-                                }
-                            }
+                                        # Add the row value to the array
+                                        $uniqueValues += $rowValue
+                                    } # End for each inex column
+                                } # End for each index
+                            } # End for each row
+                        } # End if db table unique index count
+                        else {
+                            Write-Message -Level Verbose -Message "Table [$($tableobject.Schema)].[$($tableobject.Name)] does not have any unique indexes. Skipping"
                         }
-                    }
+                    } # End if has unique index in json
 
                     $uniqueValueColumns = $uniqueValueColumns | Select-Object -Unique
 
