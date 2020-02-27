@@ -302,7 +302,6 @@ function Invoke-DbaDbDataMasking {
                         Stop-Function -Message "Could not add identity index to table [$($dbTable.Schema)].[$($dbTable.Name)]" -Continue
                     }
 
-
                     try {
                         if (-not (Test-Bound -ParameterName Query)) {
                             $columnString = "[" + (($dbTable.Columns | Where-Object DataType -in $supportedDataTypes | Select-Object Name -ExpandProperty Name) -join "],[") + "]"
@@ -318,18 +317,141 @@ function Invoke-DbaDbDataMasking {
                     [array]$uniqueIndexes = $db.Tables[$($tableobject.Name)].Indexes | Where-Object IsUnique -eq $true
 
                     # Check if the table contains unique indexes
+                    [bool]$cleanupUMT = $false
                     if ($tableobject.HasUniqueIndex) {
 
                         if ($uniqueIndexes.Count -ge 1) {
 
+                            $indexedColumns = $dbTable.Columns | Where-Object Name -in $uniqueIndexes.IndexedColumns.Name | Sort-Object ID
+
+                            $uniqueMakingTableName = "[$($tableobject.Schema)].[$($tableobject.Name)__UMV]"
+
+                            $query = "CREATE TABLE $uniqueMakingTableName ("
+
+                            $columnDefinitions = @()
+
+                            foreach ($indexedColumn in $indexedColumns) {
+                                $dataType = $indexedColumn.DataType
+
+                                $columnDefinition = "[$($indexedColumn.Name)] "
+
+                                switch ($dataType.SqlDataType) {
+                                    #################################################################################################
+                                    ## THIS PART STILL NEEDS SUPPORT FOR ALL THE OTHER DATA TYPES LIKE DATE, DATETIME, DECIMAL ETC ##
+                                    #################################################################################################
+
+                                    { $_ -in "char", "nchar", "nvarchar", "varchar" } {
+                                        $columnDefinition += "$($dataType.SqlDataType.ToString().ToUpper())($($dataType.MaximumLength)) "
+                                    }
+                                    "int" {
+                                        $columnDefinition += "$($dataType.SqlDataType.ToString().ToUpper()) "
+                                    }
+                                }
+
+                                if ($indexedColumn.Nullable) {
+                                    $columnDefinition += "NULL"
+                                } else {
+                                    $columnDefinition += "NOT NULL"
+                                }
+
+                                $columnDefinitions += $columnDefinition
+                            }
+
+                            # Create the masking values table
+                            try {
+                                $query += "$($columnDefinitions -join ","))"
+
+                                Invoke-DbaQuery -SqlInstance $instance -SqlCredential $SqlCredential -Database $db.Name -Query $query
+
+                                $cleanupUMT = $true
+                            } catch {
+                                Stop-Function -Message "Could not create table $uniqueMakingTableName" -Target $uniqueMakingTableName -ErrorRecord $_ -Continue
+                            }
+
+                            # Create unique index on UMV table
+                            try {
+                                $query = "CREATE UNIQUE NONCLUSTERED INDEX [MUV_$($uniqueMakingTableName)] ON [dbo].[$($uniqueMakingTableName)__UMV]([$($indexedColumns.Name -join "],[")])"
+                            } catch {
+                                Stop-Function -Message "Could not create unique index for $uniqueMakingTableName" -Target $uniqueMakingTableName -ErrorRecord $_ -Continue
+                            }
+
                             # Loop through the rows and generate a unique value for each row
                             Write-Message -Level Verbose -Message "Generating unique values for $($tableobject.Name)"
 
-                            for ($i = 0; $i -lt $data.Count; $i++) {
+                            for ($i = 0; $i -lt $data.Count; $i++){
 
-                                $rowValue = New-Object PSCustomObject
+                                $query = "INSERT INTO [dbo].[testtable3]([$($indexedColumns.Name -join "],[")]) VALUES("
 
-                                # Loop through each of the unique indexes
+                                $insertValues = @()
+
+                                # Loop through the index columns
+                                foreach ($indexedColumn in $indexedColumns) {
+                                    $dataType = $indexedColumn.DataType
+
+                                    $newValue = $null
+
+                                    # Get the column mask info
+                                    $columnMaskInfo = $null
+                                    $columnMaskInfo = $tableobject.Columns | Where-Object Name -eq $indexedColumn.Name
+
+                                    if ($columnMaskInfo) {
+                                        # Generate a new value
+                                        try {
+                                            if (-not $columnobject.SubType -and $columnobject.ColumnType -in $supportedDataTypes) {
+                                                $randomParams = @{
+                                                    DataType = $columnMaskInfo.SubType
+                                                    Min = $columnMaskInfo.MinValue
+                                                    Max = $columnMaskInfo.MaxValue
+                                                    Locale = $Locale
+                                                }
+
+                                                $newValue = Get-DbaRandomizedValue @randomParams
+                                            } else {
+                                                $randomParams = @{
+                                                    RandomizerType = $columnMaskInfo.MaskingType
+                                                    RandomizerSubtype = $columnMaskInfo.SubType
+                                                    Min = $columnMaskInfo.MinValue
+                                                    Max = $columnMaskInfo.MaxValue
+                                                    Locale = $Locale
+                                                }
+
+                                                $newValue = Get-DbaRandomizedValue @randomParams
+                                            }
+
+                                        } catch {
+                                            Stop-Function -Message "Failure" -Target $columnMaskInfo -Continue -ErrorRecord $_
+                                        }
+                                    } else {
+                                        # Generate a new value
+                                        try {
+                                            $newValue = Get-DbaRandomizedValue -DataType $indexedColumn.SqlDataType -Locale $Locale
+                                            "`$newValue = Get-DbaRandomizedValue -DataType $($indexedColumn.SqlDataTyp) -Locale $Locale"
+                                        } catch {
+                                            Stop-Function -Message "Failure" -Target $columnMaskInfo -Continue -ErrorRecord $_
+                                        }
+                                    }
+
+                                    if($newValue){
+                                        switch ($dataType.SqlDataType) {
+                                            #################################################################################################
+                                            ## THIS PART STILL NEEDS SUPPORT FOR ALL THE OTHER DATA TYPES LIKE DATE, DATETIME, DECIMAL ETC ##
+                                            #################################################################################################
+
+                                            { $_ -in "char", "nchar", "nvarchar", "varchar" } {
+                                                $insertValues += "'$($newValue)'"
+                                            }
+                                            "int" {
+                                                $insertValues += $newValue
+                                            }
+                                        }
+                                    }
+                                }
+
+                                $query += "$($insertValues -join ","))"
+                                $query
+                                if($i -eq 10){return}
+
+                                <# # Loop through each of the unique indexes
                                 foreach ($index in $uniqueIndexes) {
 
                                     # Loop through the index columns
@@ -394,7 +516,7 @@ function Invoke-DbaDbDataMasking {
                                         # Add the row value to the array
                                         $uniqueValues += $rowValue
                                     } # End for each inex column
-                                } # End for each index
+                                } # End for each index #>
                             } # End for each row
                         } # End if db table unique index count
                         else {
@@ -717,7 +839,7 @@ function Invoke-DbaDbDataMasking {
                                 Invoke-DbaQuery -SqlInstance $instance -SqlCredential $SqlCredential -Database $db.Name -Query $query
 
                             } catch {
-                                Stop-Function -Message "Could not remove identity column from table [$($dbTable.Schema)].[$($dbTable.Name)]" -Continue
+                                Stop-Function -Message "Could not remove identity column from table [$($dbTable.Schema)].[$($dbTable.Name)]" -Target $dbTable -ErrorRecord $_ -Continue
                             }
                         }
 
@@ -736,6 +858,16 @@ function Invoke-DbaDbDataMasking {
                             }
                         } catch {
                             Stop-Function -Message "Error updating $($tableobject.Schema).$($tableobject.Name).`n$updatequery" -Target $updatequery -Continue -ErrorRecord $_
+                        }
+                    }
+
+                    if ($cleanupUMT) {
+                        $query = "DROP TABLE $uniqueMakingTableName"
+
+                        try {
+                            Invoke-DbaQuery -SqlInstance $instance -SqlCredential $SqlCredential -Database $db.Name -Query $query
+                        } catch {
+                            Stop-Function -Message "Could not drop table $uniqueMakingTableName" -Target $uniqueMakingTableName -ErrorRecord $_  -Continue
                         }
                     }
 
