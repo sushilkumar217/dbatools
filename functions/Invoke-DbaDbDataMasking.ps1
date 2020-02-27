@@ -315,8 +315,10 @@ function Invoke-DbaDbDataMasking {
                         Stop-Function -Message "Failure retrieving the data from table $($tableobject.Name)" -Target $Database -ErrorRecord $_ -Continue
                     }
 
+                    [array]$uniqueIndexes = $db.Tables[$($tableobject.Name)].Indexes | Where-Object IsUnique -eq $true
+
                     # Check if the table contains unique indexes
-                    if ($tableobject.HasUniqueIndex) {
+                    if ($tableobject.HasUniqueIndex -and $uniqueIndexes.Count -ge 1) {
 
                         # Loop through the rows and generate a unique value for each row
                         Write-Message -Level Verbose -Message "Generating unique values for $($tableobject.Name)"
@@ -326,7 +328,7 @@ function Invoke-DbaDbDataMasking {
                             $rowValue = New-Object PSCustomObject
 
                             # Loop through each of the unique indexes
-                            foreach ($index in ($db.Tables[$($tableobject.Name)].Indexes | Where-Object IsUnique -eq $true )) {
+                            foreach ($index in $uniqueIndexes) {
 
                                 # Loop through the index columns
                                 foreach ($indexColumn in $index.IndexedColumns) {
