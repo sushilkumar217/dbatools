@@ -39,6 +39,11 @@ function Disable-DbaTraceFlag {
         PS C:\> Disable-DbaTraceFlag -SqlInstance sql2016 -TraceFlag 3226
 
         Disable the globally running trace flag 3226 on SQL Server instance sql2016
+        
+        PS C:\> Disable-DbaTraceFlag -SqlInstance sql2016_1, sql2016_2 -TraceFlag 6532,7314
+        
+        Disable more than 1 globally running trace flags on more than 1 SQL Server instances sql2016_1 and sql2016_2
+        
 
     #>
     [CmdletBinding()]
